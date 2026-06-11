@@ -861,20 +861,6 @@ static JSValue tjs_httpclient_set_enable_cookies(JSContext *ctx, JSValue this_va
     return JS_UNDEFINED;
 }
 
-static JSValue tjs_httpclient_set_allow_insecure(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
-    TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
-    if (!h) {
-        return JS_EXCEPTION;
-    }
-
-    if (argc > 0 && JS_ToBool(ctx, argv[0])) {
-        h->ssl_flags |= LCCSCF_ALLOW_INSECURE;
-    } else {
-        h->ssl_flags &= ~LCCSCF_ALLOW_INSECURE;
-    }
-    return JS_UNDEFINED;
-}
-
 static JSValue tjs_httpclient_set_proxy(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
     if (!h) {
@@ -950,6 +936,20 @@ static JSValue tjs_httpclient_abort(JSContext *ctx, JSValue this_val, int argc, 
     return JS_UNDEFINED;
 }
 
+static JSValue tjs_httpclient_set_allow_insecure(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
+    if (!h) {
+        return JS_EXCEPTION;
+    }
+
+    if (JS_ToBool(ctx, argv[0])) {
+        h->ssl_flags |= LCCSCF_ALLOW_INSECURE;
+    } else {
+        h->ssl_flags &= ~LCCSCF_ALLOW_INSECURE;
+    }
+    return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry tjs_httpclient_proto_funcs[] = {
     JS_CGETSET_MAGIC_DEF("onstatus", tjs_httpclient_callback_get, tjs_httpclient_callback_set, HC_CALLBACK_STATUS),
     JS_CGETSET_MAGIC_DEF("onurl", tjs_httpclient_callback_get, tjs_httpclient_callback_set, HC_CALLBACK_URL),
@@ -967,6 +967,7 @@ static const JSCFunctionListEntry tjs_httpclient_proto_funcs[] = {
     TJS_CFUNC_DEF("setRequestHeader", 2, tjs_httpclient_setrequestheader),
     TJS_CFUNC_DEF("setEnableCookies", 1, tjs_httpclient_set_enable_cookies),
     TJS_CFUNC_DEF("setProxy", 1, tjs_httpclient_set_proxy),
+    TJS_CFUNC_DEF("setAllowInsecure", 1, tjs_httpclient_set_allow_insecure),
     TJS_CFUNC_DEF("sendData", 1, tjs_httpclient_senddata),
     TJS_CFUNC_DEF("abort", 0, tjs_httpclient_abort),
 };

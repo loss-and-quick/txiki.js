@@ -102,6 +102,10 @@ export function fetch(input, init) {
             client.setProxy(init.proxy);
         }
 
+        if (init?.allowInsecure) {
+            client.setAllowInsecure(true);
+        }
+
         activeClients.add(client);
 
         let responseResolved = false;
