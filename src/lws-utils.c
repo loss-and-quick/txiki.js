@@ -543,6 +543,80 @@ struct lws_vhost *tjs__lws_select_vhost(JSContext *ctx, const char *scheme, cons
     return qrt->lws.vh_direct;
 }
 
+struct lws_vhost *tjs__lws_create_proxy_vhost(JSContext *ctx, const char *proxy_url) {
+    TJSRuntime *qrt = TJS_GetRuntime(ctx);
+    CHECK_NOT_NULL(qrt);
+
+    /* Parse proxy URL to get scheme, host, port, and userinfo. */
+    /* Split userinfo prefix before lws_parse_uri_create (it can't handle userinfo). */
+    char buf[512];
+    lws_strncpy(buf, proxy_url, sizeof(buf));
+
+    const char *authority = buf;
+    const char *scheme_sep = strstr(buf, "://");
+    if (scheme_sep) {
+        authority = scheme_sep + 3;
+    }
+
+    const char *path = authority + strcspn(authority, "/?");
+    const char *userinfo_end = NULL;
+    for (const char *p = authority; p < path; p++) {
+        if (*p == '@') {
+            userinfo_end = p;
+        }
+    }
+
+    char userinfo[256] = { 0 };
+    char clean[512];
+
+    if (userinfo_end) {
+        size_t ulen = (size_t)(userinfo_end - authority);
+        lws_strncpy(userinfo, authority, ulen + 1 < sizeof(userinfo) ? ulen + 1 : sizeof(userinfo));
+        size_t prefix = (size_t)(authority - buf);
+        if (prefix >= sizeof(clean)) {
+            return NULL;
+        }
+        memcpy(clean, buf, prefix);
+        lws_strncpy(clean + prefix, userinfo_end + 1, sizeof(clean) - prefix);
+    } else {
+        lws_strncpy(clean, buf, sizeof(clean));
+    }
+
+    lws_parse_uri_t *uri = lws_parse_uri_create(clean);
+    if (!uri) {
+        return NULL;
+    }
+
+    /* Detect SOCKS5 scheme. */
+    bool is_socks5 = !strcmp(uri->scheme, "socks5") ||
+                     !strcmp(uri->scheme, "socks5h") ||
+                     !strcmp(uri->scheme, "socks");
+
+    /* Build auth_address: "userinfo@host" or just "host". */
+    char auth_address[512];
+    if (userinfo[0]) {
+        lws_snprintf(auth_address, sizeof(auth_address), "%s@%s", userinfo, uri->host);
+    } else {
+        lws_strncpy(auth_address, uri->host, sizeof(auth_address));
+    }
+
+    TJSProxyConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    lws_strncpy(cfg.auth_address, auth_address, sizeof(cfg.auth_address));
+    lws_strncpy(cfg.hostname, uri->host, sizeof(cfg.hostname));
+    cfg.port = uri->port;
+    cfg.is_socks5 = is_socks5;
+
+    lws_parse_uri_destroy(&uri);
+
+    /* Generate a unique vhost name. */
+    static unsigned int vhost_counter;
+    char vhost_name[64];
+    lws_snprintf(vhost_name, sizeof(vhost_name), "tjs-per-request-%u", __sync_fetch_and_add(&vhost_counter, 1));
+
+    return tjs__create_client_vhost(qrt, vhost_name, &cfg);
+}
+
 static int tjs__lws_load_http_once(TJSRuntime *qrt, TJSHttpLoadCtx *load_ctx, const char *url) {
     load_ctx->status = -1;
     load_ctx->done = false;

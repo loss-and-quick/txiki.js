@@ -62,6 +62,9 @@ typedef struct {
     JSValue url;
     /* Response decompression. */
     TJSDecompressor *decompressor;
+    /* Per-request proxy override. */
+    char proxy_url[512];
+    struct lws_vhost *temp_vhost;
 } TJSHttpClient;
 
 static JSClassID tjs_httpclient_class_id;
@@ -78,6 +81,9 @@ static void tjs_httpclient_finalizer(JSRuntime *rt, JSValue val) {
         }
         if (h->url_str) {
             js_free_rt(rt, h->url_str);
+        }
+        if (h->temp_vhost) {
+            lws_vhost_destroy(h->temp_vhost);
         }
         if (h->decompressor) {
             tjs__decompressor_destroy(h->decompressor, rt);
@@ -537,6 +543,12 @@ static int tjs_lws_http_callback(struct lws *wsi, enum lws_callback_reasons reas
                 }
             }
 
+            /* Destroy per-request proxy vhost if one was created. */
+            if (h->temp_vhost) {
+                lws_vhost_destroy(h->temp_vhost);
+                h->temp_vhost = NULL;
+            }
+
             /* Drop the prevent-GC reference.  The GC finalizer will free
              * callbacks, url, buffers, and the struct itself. */
             CHECK(!JS_IsUndefined(h->this_val));
@@ -584,6 +596,8 @@ static JSValue tjs_httpclient_constructor(JSContext *ctx, JSValue new_target, in
     h->body_done = false;
     h->completed = false;
     h->ssl_flags = 0;
+    h->proxy_url[0] = '\0';
+    h->temp_vhost = NULL;
 
     for (int i = 0; i < HC_CALLBACK_MAX; i++) {
         h->callbacks[i] = JS_UNDEFINED;
@@ -724,7 +738,17 @@ static int tjs_httpclient_connect(TJSHttpClient *h) {
     cci.local_protocol_name = TJS_LWS_HTTP_PROTOCOL_NAME;
     cci.userdata = h;
     cci.pwsi = &h->wsi;
-    cci.vhost = tjs__lws_select_vhost(ctx, uri->scheme, uri->host, uri->port);
+    if (h->proxy_url[0]) {
+        struct lws_vhost *pv = tjs__lws_create_proxy_vhost(ctx, h->proxy_url);
+        if (!pv) {
+            lws_parse_uri_destroy(&uri);
+            return -1;
+        }
+        h->temp_vhost = pv;
+        cci.vhost = pv;
+    } else {
+        cci.vhost = tjs__lws_select_vhost(ctx, uri->scheme, uri->host, uri->port);
+    }
 
     tjs__lws_conn_ref(ctx);
 
@@ -837,6 +861,37 @@ static JSValue tjs_httpclient_set_enable_cookies(JSContext *ctx, JSValue this_va
     return JS_UNDEFINED;
 }
 
+static JSValue tjs_httpclient_set_allow_insecure(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
+    if (!h) {
+        return JS_EXCEPTION;
+    }
+
+    if (argc > 0 && JS_ToBool(ctx, argv[0])) {
+        h->ssl_flags |= LCCSCF_ALLOW_INSECURE;
+    } else {
+        h->ssl_flags &= ~LCCSCF_ALLOW_INSECURE;
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue tjs_httpclient_set_proxy(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
+    TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
+    if (!h) {
+        return JS_EXCEPTION;
+    }
+    if (argc < 1 || JS_IsNull(argv[0]) || JS_IsUndefined(argv[0])) {
+        h->proxy_url[0] = '\0';
+    } else {
+        const char *url = JS_ToCString(ctx, argv[0]);
+        if (url) {
+            lws_strncpy(h->proxy_url, url, sizeof(h->proxy_url));
+            JS_FreeCString(ctx, url);
+        }
+    }
+    return JS_UNDEFINED;
+}
+
 static JSValue tjs_httpclient_senddata(JSContext *ctx, JSValue this_val, int argc, JSValue *argv) {
     TJSHttpClient *h = tjs_httpclient_get(ctx, this_val);
     if (!h) {
@@ -885,6 +940,11 @@ static JSValue tjs_httpclient_abort(JSContext *ctx, JSValue this_val, int argc, 
         /* Kill the WSI synchronously. The teardown callback chain
          * will handle cleanup — do not access h afterwards. */
         lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, LWS_TO_KILL_SYNC);
+
+        if (h->temp_vhost) {
+            lws_vhost_destroy(h->temp_vhost);
+            h->temp_vhost = NULL;
+        }
     }
 
     return JS_UNDEFINED;
@@ -906,6 +966,7 @@ static const JSCFunctionListEntry tjs_httpclient_proto_funcs[] = {
     TJS_CFUNC_DEF("open", 3, tjs_httpclient_open),
     TJS_CFUNC_DEF("setRequestHeader", 2, tjs_httpclient_setrequestheader),
     TJS_CFUNC_DEF("setEnableCookies", 1, tjs_httpclient_set_enable_cookies),
+    TJS_CFUNC_DEF("setProxy", 1, tjs_httpclient_set_proxy),
     TJS_CFUNC_DEF("sendData", 1, tjs_httpclient_senddata),
     TJS_CFUNC_DEF("abort", 0, tjs_httpclient_abort),
 };

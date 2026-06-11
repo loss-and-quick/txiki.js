@@ -11,6 +11,7 @@ class HttpClient {
     #body = null;
     #headers = [];
     #cookies = false;
+    #proxy = null;
     #client = null;
 
     get onstatus() {
@@ -119,6 +120,14 @@ class HttpClient {
         }
     }
 
+    setProxy(url) {
+        this.#proxy = url;
+
+        if (this.#client) {
+            this.#client.setProxy(url);
+        }
+    }
+
     sendData(data) {
         if (this.#client) {
             this.#client.sendData(data);
@@ -155,6 +164,10 @@ class HttpClient {
 
         if (this._streaming) {
             client.streaming = true;
+        }
+
+        if (this.#proxy) {
+            client.setProxy(this.#proxy);
         }
 
         // Re-apply stored headers for redirect hops.

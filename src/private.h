@@ -181,6 +181,7 @@ void tjs__lws_setup(void);
 void tjs__lws_conn_ref(JSContext *ctx);
 void tjs__lws_conn_unref(JSContext *ctx);
 struct lws_vhost *tjs__lws_select_vhost(JSContext *ctx, const char *scheme, const char *hostname, int port);
+struct lws_vhost *tjs__lws_create_proxy_vhost(JSContext *ctx, const char *proxy_url);
 int tjs__lws_load_http(TJSRuntime *qrt, TBuf *dbuf, const char *url);
 
 uv_loop_t *TJS_GetLoop(TJSRuntime *qrt);

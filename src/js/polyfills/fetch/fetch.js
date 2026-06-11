@@ -98,6 +98,10 @@ export function fetch(input, init) {
 
         const client = new HttpClient();
 
+        if (init && init.proxy) {
+            client.setProxy(init.proxy);
+        }
+
         activeClients.add(client);
 
         let responseResolved = false;
