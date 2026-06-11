@@ -952,6 +952,11 @@ static JSValue tjs_pipe_bind(JSContext *ctx, JSValue this_val, int argc, JSValue
         return JS_EXCEPTION;
     }
 
+    /* Remove any stale socket file before binding (standard practice for
+       Unix domain socket servers).  Only path-based, not abstract sockets. */
+    if (len > 0 && name[0] != '\0')
+        unlink(name);
+
     int r = uv_pipe_bind2(&t->h.pipe, name, len, 0);
     JS_FreeCString(ctx, name);
     if (r != 0) {
