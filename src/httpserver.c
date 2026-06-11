@@ -740,11 +740,23 @@ static int tjs_http_callback(struct lws *wsi, enum lws_callback_reasons reason, 
 
             uint64_t upgrade_id = uctx->id;
 
+            /* Reconstruct full URL including query string (lws strips it from uri_ptr). */
+            char full_url[2048];
+            size_t copy_len = MIN((size_t) uri_len, sizeof(full_url) - 1);
+            size_t copy_query_len = sizeof(full_url) - copy_len - 1;
+            memcpy(full_url, uri_ptr, copy_len);
+
+            if (lws_hdr_copy(wsi, full_url + copy_len + 1, copy_query_len, WSI_TOKEN_HTTP_URI_ARGS) > 0) {
+                full_url[copy_len] = '?';
+            } else {
+                full_url[copy_len] = '\0';
+            }
+
             /* Call JS onRequest synchronously with upgrade ID and WS marker. */
             JSValue args[7];
             args[0] = JS_NewInt64(ctx, (int64_t) upgrade_id);
             args[1] = JS_NewString(ctx, method);
-            args[2] = JS_NewStringLen(ctx, uri_ptr, uri_len);
+            args[2] = JS_NewStringLen(ctx, full_url, strlen(full_url));
             args[3] = headers_arr;
             args[4] = JS_NULL;
             args[5] = JS_NewString(ctx, uctx->remote_addr);
